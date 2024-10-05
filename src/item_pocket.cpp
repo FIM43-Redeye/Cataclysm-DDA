@@ -171,6 +171,7 @@ void pocket_data::load( const JsonObject &jo )
     optional( jo, was_loaded, "fire_protection", fire_protection, false );
     optional( jo, was_loaded, "watertight", watertight, false );
     optional( jo, was_loaded, "airtight", airtight, false );
+    optional( jo, was_loaded, "separates_fluids", separates_fluids, false );
     optional( jo, was_loaded, "open_container", open_container, false );
     optional( jo, was_loaded, "transparent", transparent, false );
     optional( jo, was_loaded, "rigid", rigid, false );
@@ -206,6 +207,7 @@ bool pocket_data::operator==( const pocket_data &rhs ) const
     return rigid == rhs.rigid &&
            watertight == rhs.watertight &&
            airtight == rhs.airtight &&
+           separates_fluids == rhs.separates_fluids &&
            fire_protection == rhs.fire_protection &&
            get_flag_restrictions() == rhs.get_flag_restrictions() &&
            ammo_restriction == rhs.ammo_restriction &&
@@ -1111,6 +1113,10 @@ void item_pocket::general_info( std::vector<iteminfo> &info, int pocket_number,
         info.emplace_back( "DESCRIPTION",
                            _( "This pocket can <info>contain a gas</info>." ) );
     }
+    if (data->separates_fluids) {
+        info.emplace_back("DESCRIPTION",
+                            _("This pocket can <info>contain multiple fluids simultaneously.</info>."));
+    }
     if( will_spill() ) {
         info.emplace_back( "DESCRIPTION",
                            _( "This pocket will <bad>spill</bad> if placed into another item or worn." ) );
@@ -1485,40 +1491,44 @@ ret_val<item_pocket::contain_code> item_pocket::_can_contain( const item &it,
         copies_remaining = 0;
         return ret_val<item_pocket::contain_code>::make_success();
     }
+    if (!data->separates_fluids) {
+        if (it.made_of(phase_id::LIQUID)) {
+            if (size() != 0 && !contents.front().can_combine(it) && data->watertight) {
+                return ret_val<item_pocket::contain_code>::make_failure(
+                    contain_code::ERR_LIQUID, _("can't mix liquid with contained item"));
+            }
+        }
+        else if (size() == 1 && !it.is_frozen_liquid() &&
+            contents.front().made_of(phase_id::LIQUID) && data->watertight) {
+            return ret_val<item_pocket::contain_code>::make_failure(
+                contain_code::ERR_LIQUID, _("can't put non liquid into pocket with liquid"));
+        }
 
-    if( it.made_of( phase_id::LIQUID ) ) {
-        if( size() != 0 && !contents.front().can_combine( it ) && data->watertight ) {
-            return ret_val<item_pocket::contain_code>::make_failure(
-                       contain_code::ERR_LIQUID, _( "can't mix liquid with contained item" ) );
+        if (it.is_frozen_liquid()) {
+            if (size() != 0 && !contents.front().can_combine(it) && data->watertight) {
+                return ret_val<item_pocket::contain_code>::make_failure(
+                    contain_code::ERR_LIQUID,
+                    _("can't mix frozen liquid with contained item in the watertight container"));
+            }
         }
-    } else if( size() == 1 && !it.is_frozen_liquid() &&
-               contents.front().made_of( phase_id::LIQUID ) && data->watertight ) {
-        return ret_val<item_pocket::contain_code>::make_failure(
-                   contain_code::ERR_LIQUID, _( "can't put non liquid into pocket with liquid" ) );
-    }
+        else if (data->watertight) {
+            if (size() == 1 && contents.front().is_frozen_liquid() && !contents.front().can_combine(it)) {
+                return ret_val<item_pocket::contain_code>::make_failure(
+                    contain_code::ERR_LIQUID,
+                    _("can't mix item with contained frozen liquid in the watertight container"));
+            }
+        }
 
-    if( it.is_frozen_liquid() ) {
-        if( size() != 0 && !contents.front().can_combine( it ) && data->watertight ) {
-            return ret_val<item_pocket::contain_code>::make_failure(
-                       contain_code::ERR_LIQUID,
-                       _( "can't mix frozen liquid with contained item in the watertight container" ) );
+        if (it.made_of(phase_id::GAS)) {
+            if (size() != 0 && !contents.front().can_combine(it)) {
+                return ret_val<item_pocket::contain_code>::make_failure(
+                    contain_code::ERR_GAS, _("can't mix gas with contained item"));
+            }
         }
-    } else if( data->watertight ) {
-        if( size() == 1 && contents.front().is_frozen_liquid() && !contents.front().can_combine( it ) ) {
+        else if (size() == 1 && contents.front().made_of(phase_id::GAS)) {
             return ret_val<item_pocket::contain_code>::make_failure(
-                       contain_code::ERR_LIQUID,
-                       _( "can't mix item with contained frozen liquid in the watertight container" ) );
+                contain_code::ERR_GAS, _("can't put non gas into pocket with gas"));
         }
-    }
-
-    if( it.made_of( phase_id::GAS ) ) {
-        if( size() != 0 && !contents.front().can_combine( it ) ) {
-            return ret_val<item_pocket::contain_code>::make_failure(
-                       contain_code::ERR_GAS, _( "can't mix gas with contained item" ) );
-        }
-    } else if( size() == 1 && contents.front().made_of( phase_id::GAS ) ) {
-        return ret_val<item_pocket::contain_code>::make_failure(
-                   contain_code::ERR_GAS, _( "can't put non gas into pocket with gas" ) );
     }
 
     if( ignore_contents ) {
@@ -2076,6 +2086,10 @@ bool item_pocket::watertight() const
     return data->watertight;
 }
 
+bool item_pocket::separates_fluids() const
+{
+    return data->separates_fluids;
+}
 bool item_pocket::transparent() const
 {
     return data->transparent || ( data->open_container && !sealed() );

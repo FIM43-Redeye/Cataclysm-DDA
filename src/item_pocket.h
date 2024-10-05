@@ -146,6 +146,7 @@ class item_pocket
         bool rigid() const;
         bool watertight() const;
         bool airtight() const;
+        bool separates_fluids() const;
         bool inherits_flags() const;
         // open pockets are always considered transparent
         bool transparent() const;
@@ -507,6 +508,8 @@ class pocket_data
         bool watertight = false;
         // can hold gas
         bool airtight = false;
+        // can separate liquids and gases internally
+        bool separates_fluids = false;
         // the pocket will spill its contents if placed in another container
         bool open_container = false;
         // items in this pocket pass their flags to the parent item
